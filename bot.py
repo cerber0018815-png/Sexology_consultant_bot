@@ -984,26 +984,18 @@ async def end(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await finish_session(chat_id, context, is_timeout=False)
 
 # ===== ЗАПУСК =====
-async def init_db():
-    """Инициализация базы данных в нужном цикле."""
+async def main():
+    """Асинхронная главная функция."""
+    # Инициализация базы данных
     db = Database(DATABASE_URL)
     await db.connect()
     await db.init_tables()
-    return db
 
-def main():
-    # Создаём новый event loop и устанавливаем его как текущий
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    # Инициализируем базу данных в этом же цикле
-    db = loop.run_until_complete(init_db())
-
-    # Создаём приложение
+    # Создание приложения
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.bot_data['db'] = db
 
-    # Добавляем обработчики (как в исходном коде)
+    # Добавление обработчиков
     app.add_handler(CommandHandler("start", start_session))
     app.add_handler(CommandHandler("end", end))
     app.add_handler(CommandHandler("feedback", feedback_command))
@@ -1019,12 +1011,16 @@ def main():
 
     print("✅ Обработчики добавлены")
 
-    try:
-        # Запускаем polling в том же цикле
-        loop.run_until_complete(app.run_polling(timeout=50, drop_pending_updates=True))
-    finally:
-        # Закрываем цикл после остановки
-        loop.close()
+    # Запуск поллинга
+    await app.run_polling(timeout=50, drop_pending_updates=True)
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except RuntimeError as e:
+        # Если цикл уже запущен (например, в среде Bothost), используем существующий
+        if "already running" in str(e):
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(main())
+        else:
+            raise
