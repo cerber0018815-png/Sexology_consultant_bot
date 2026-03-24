@@ -51,8 +51,16 @@ if not DATABASE_URL:
     print("❌ Ошибка: DATABASE_URL не задан!")
     sys.exit(1)
 
-if PAYMENT_ENABLED and not PAYMENT_PROVIDER_TOKEN:
-    print("⚠️ PAYMENT_ENABLED = True, но PAYMENT_PROVIDER_TOKEN не задан. Платежи будут недоступны.")
+# Проверка токена платежей
+def is_payment_configured() -> bool:
+    if not PAYMENT_ENABLED or not PAYMENT_PROVIDER_TOKEN:
+        return False
+    if ':' not in PAYMENT_PROVIDER_TOKEN:
+        return False
+    return True
+
+if PAYMENT_ENABLED and not is_payment_configured():
+    print("⚠️ PAYMENT_ENABLED = True, но PAYMENT_PROVIDER_TOKEN не задан или невалиден. Платежи будут недоступны.")
     PAYMENT_ENABLED = False
 
 openai.api_base = "https://api.deepseek.com/v1"
@@ -62,7 +70,7 @@ openai.api_key = DEEPSEEK_API_KEY
 # ===== КОНСТАНТЫ =====
 MAX_HISTORY = 30
 SESSION_DURATION = 45 * 60          # 45 минут
-COOLDOWN_SECONDS = 1 * 60 * 1     # 24 часа
+COOLDOWN_SECONDS = 24 * 60 * 60     # 24 часа
 TIMER_UPDATE_INTERVAL = 60
 
 END_MESSAGE = (
@@ -708,7 +716,7 @@ async def start_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
         minutes_left = int((remaining % 3600) // 60)
         await update.message.reply_text(
             f"Здравствуйте, мы рады вас видеть! "
-            f"Для более эффективной работы необходимо делать перерывы между консультациями. Консультация будет доступна через {hours_left} ч {minutes_left} мин.",
+            f"Для более эффективной работы необходимо делать перерывы между консультациями. Возвращайтесь через {hours_left} ч {minutes_left} мин.",
             reply_markup=START_KEYBOARD
         )
         return
@@ -722,7 +730,7 @@ async def start_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # Если бесплатная уже использована или отключена – переходим к оплате
-    if PAYMENT_ENABLED:
+    if is_payment_configured():
         # Отправляем инвойс
         service_text = (
             "🧑‍⚕️ **Консультация сексолога (45 минут)**\n\n"
@@ -740,7 +748,7 @@ async def start_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(service_text, parse_mode='Markdown')
         await send_invoice(chat_id, context)
     else:
-        # Платежи отключены – стартуем сессию сразу
+        # Платежи отключены или токен не задан – стартуем сессию сразу
         await start_session_core(chat_id, user_id, context, is_free=False)
 
 async def free_consultation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -782,7 +790,7 @@ async def free_consultation_callback(update: Update, context: ContextTypes.DEFAU
 
 # ===== ПЛАТЕЖИ =====
 async def send_invoice(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not PAYMENT_ENABLED or not PAYMENT_PROVIDER_TOKEN:
+    if not is_payment_configured():
         return
     prices = [LabeledPrice(label="Сессия (45 мин)", amount=PRICE)]
     provider_data = json.dumps({
@@ -795,22 +803,30 @@ async def send_invoice(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None
             }]
         }
     })
-    invoice_message = await context.bot.send_invoice(
-        chat_id=chat_id,
-        title="Оплата сессии",
-        description="Одна консультация (45 минут).",
-        payload="session_payment",
-        provider_token=PAYMENT_PROVIDER_TOKEN,
-        currency=CURRENCY,
-        prices=prices,
-        provider_data=provider_data,
-        need_email=True,
-        send_email_to_provider=True
-    )
-    return invoice_message
+    try:
+        invoice_message = await context.bot.send_invoice(
+            chat_id=chat_id,
+            title="Оплата сессии",
+            description="Одна консультация (45 минут).",
+            payload="session_payment",
+            provider_token=PAYMENT_PROVIDER_TOKEN,
+            currency=CURRENCY,
+            prices=prices,
+            provider_data=provider_data,
+            need_email=True,
+            send_email_to_provider=True
+        )
+        return invoice_message
+    except Exception as e:
+        print(f"❌ Ошибка при отправке инвойса: {e}")
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Извините, платёжная система временно недоступна. Попробуйте позже или обратитесь к администратору."
+        )
+        return None
 
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not PAYMENT_ENABLED:
+    if not is_payment_configured():
         await update.message.reply_text("Платёжные функции отключены администратором.")
         return
     user_id = update.effective_user.id
@@ -844,13 +860,13 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_invoice(chat_id, context)
 
 async def pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if PAYMENT_ENABLED:
+    if is_payment_configured():
         await update.pre_checkout_query.answer(ok=True)
     else:
         await update.pre_checkout_query.answer(ok=False, error_message="Платежи временно недоступны.")
 
 async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not PAYMENT_ENABLED:
+    if not is_payment_configured():
         await update.message.reply_text("Платежи отключены, сессия не может быть начата.")
         return
     user_id = update.effective_user.id
