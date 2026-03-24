@@ -43,7 +43,7 @@ openai.api_key = DEEPSEEK_API_KEY
 
 # ===== КОНСТАНТЫ =====
 MAX_HISTORY = 30
-SESSION_DURATION = 40 * 60          # 40 минут
+SESSION_DURATION = 30 * 60          # 40 минут
 COOLDOWN_SECONDS = 24 * 60 * 60     # 24 часа (можно изменить)
 TIMER_UPDATE_INTERVAL = 60
 
