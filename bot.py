@@ -751,6 +751,29 @@ async def start_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Платежи отключены или токен не задан – стартуем сессию сразу
         await start_session_core(chat_id, user_id, context, is_free=False)
 
+# ---- ДОБАВИТЬ НОВУЮ ФУНКЦИЮ ----
+async def reset_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Сбрасывает базу данных (удаляет все таблицы и создаёт заново). Доступно только администратору."""
+    # Проверка прав: только автор (администратор)
+    if AUTHOR_CHAT_ID and update.effective_user.id != int(AUTHOR_CHAT_ID):
+        await update.message.reply_text("⛔ Недостаточно прав для выполнения этой команды.")
+        return
+
+    db: Database = context.bot_data['db']
+    await update.message.reply_text("⚠️ Сброс базы данных... Это удалит все данные пользователей, сессий и сообщений.")
+
+    try:
+        async with db.pool.acquire() as conn:
+            # Удаляем схему public и создаём заново
+            await conn.execute("DROP SCHEMA public CASCADE")
+            await conn.execute("CREATE SCHEMA public")
+            await conn.execute("GRANT ALL ON SCHEMA public TO public")
+        # Пересоздаём таблицы через метод init_tables
+        await db.init_tables()
+        await update.message.reply_text("✅ База данных успешно сброшена и таблицы пересозданы.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка при сбросе базы: {e}")
+
 async def free_consultation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик нажатия на кнопку бесплатной консультации."""
     query = update.callback_query
@@ -1016,6 +1039,7 @@ async def main():
     app.add_handler(CommandHandler("end", end))
     app.add_handler(CommandHandler("feedback", feedback_command))
     app.add_handler(CommandHandler("view_feedback", view_feedback))
+    app.add_handler(CommandHandler("resetdb", reset_db))
     if PAYMENT_ENABLED:
         app.add_handler(CommandHandler("buy", buy))
         app.add_handler(PreCheckoutQueryHandler(pre_checkout))
