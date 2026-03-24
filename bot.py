@@ -15,8 +15,8 @@ from telegram.ext import (
 load_dotenv()
 
 # ===== НАСТРОЙКИ =====
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
+TELEGRAM_TOKEN = "8605601922:AAFicfCMqqZv9mlfCa8u2zJr26_yFvMOfWY"
+DEEPSEEK_API_KEY = "sk-36856beaa5f8494da65cf4cee3f2a0d4"
 PAYMENT_PROVIDER_TOKEN = os.getenv('PAYMENT_PROVIDER_TOKEN')
 CURRENCY = os.getenv('CURRENCY', 'RUB')
 PRICE = int(os.getenv('PRICE', 15000))          # цена в копейках
