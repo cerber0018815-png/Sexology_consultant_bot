@@ -984,17 +984,26 @@ async def end(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await finish_session(chat_id, context, is_timeout=False)
 
 # ===== ЗАПУСК =====
-async def main():
-    print("🚀 Запуск бота...")
-    # Инициализация базы данных
+async def init_db():
+    """Инициализация базы данных в нужном цикле."""
     db = Database(DATABASE_URL)
     await db.connect()
     await db.init_tables()
+    return db
 
+def main():
+    # Создаём новый event loop и устанавливаем его как текущий
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    # Инициализируем базу данных в этом же цикле
+    db = loop.run_until_complete(init_db())
+
+    # Создаём приложение
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.bot_data['db'] = db
 
-    # Обработчики команд
+    # Добавляем обработчики (как в исходном коде)
     app.add_handler(CommandHandler("start", start_session))
     app.add_handler(CommandHandler("end", end))
     app.add_handler(CommandHandler("feedback", feedback_command))
@@ -1004,19 +1013,18 @@ async def main():
         app.add_handler(PreCheckoutQueryHandler(pre_checkout))
         app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
 
-    # Обработчики callback
     app.add_handler(CallbackQueryHandler(free_consultation_callback, pattern="^free_consultation$"))
     app.add_handler(CallbackQueryHandler(feedback_callback, pattern="^feedback_"))
-
-    # Обработчик текстовых сообщений
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("✅ Обработчики добавлены")
-    await app.run_polling(timeout=50, drop_pending_updates=True)
 
-    # Закрываем соединение с БД после остановки
-    await db.close()
+    try:
+        # Запускаем polling в том же цикле
+        loop.run_until_complete(app.run_polling(timeout=50, drop_pending_updates=True))
+    finally:
+        # Закрываем цикл после остановки
+        loop.close()
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
