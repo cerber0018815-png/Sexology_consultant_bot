@@ -736,7 +736,6 @@ async def end(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
-    print("💬 Получено сообщение (содержимое скрыто)")
 
     ensure_user_data(context)
 
