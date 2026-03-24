@@ -1,3 +1,4 @@
 openai==0.28.0
 python-dotenv==1.2.2
 python-telegram-bot==22.6
+asyncpg==0.30.0
