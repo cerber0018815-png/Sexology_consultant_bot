@@ -6,6 +6,7 @@ import os
 import json
 from datetime import datetime
 from dotenv import load_dotenv
+import asyncpg
 from telegram import Update, ReplyKeyboardMarkup, LabeledPrice, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters,
@@ -17,6 +18,7 @@ load_dotenv()
 # ===== НАСТРОЙКИ =====
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
+DATABASE_URL = os.getenv('DATABASE_URL')
 PAYMENT_PROVIDER_TOKEN = os.getenv('PAYMENT_PROVIDER_TOKEN')
 CURRENCY = os.getenv('CURRENCY', 'RUB')
 PRICE = int(os.getenv('PRICE', 15000))          # цена в копейках
@@ -29,8 +31,23 @@ USE_AI_END = os.getenv('USE_AI_END', 'True').lower() in ('true', '1', 'yes')
 # Включены ли платежи
 PAYMENT_ENABLED = os.getenv('PAYMENT_ENABLED', 'False').lower() in ('true', '1', 'yes')
 
+# Бесплатная первая консультация
+FREE_CONSULTATION_ENABLED = os.getenv('FREE_CONSULTATION_ENABLED', 'True').lower() in ('true', '1', 'yes')
+
+# Текст для бесплатной консультации
+FREE_CONSULTATION_TEXT = (
+    "🎁 **Первая консультация бесплатно!**\n\n"
+    "Вы можете получить одну бесплатную 40-минутную сессию, чтобы познакомиться с форматом работы, задать вопросы и понять, насколько такой подход вам подходит.\n\n"
+    "После бесплатной сессии дальнейшие консультации будут платными.\n\n"
+    "Нажмите кнопку ниже, чтобы начать бесплатную консультацию."
+)
+
 if not TELEGRAM_TOKEN or not DEEPSEEK_API_KEY:
     print("❌ Ошибка: TELEGRAM_TOKEN или DEEPSEEK_API_KEY не найдены!")
+    sys.exit(1)
+
+if not DATABASE_URL:
+    print("❌ Ошибка: DATABASE_URL не задан!")
     sys.exit(1)
 
 if PAYMENT_ENABLED and not PAYMENT_PROVIDER_TOKEN:
@@ -43,8 +60,8 @@ openai.api_key = DEEPSEEK_API_KEY
 
 # ===== КОНСТАНТЫ =====
 MAX_HISTORY = 30
-SESSION_DURATION = 45 * 60          # 40 минут
-COOLDOWN_SECONDS = 24 * 60 * 60     # 24 часа (можно изменить)
+SESSION_DURATION = 45 * 60          # 45 минут
+COOLDOWN_SECONDS = 24 * 60 * 60     # 24 часа
 TIMER_UPDATE_INTERVAL = 60
 
 END_MESSAGE = (
@@ -53,26 +70,149 @@ END_MESSAGE = (
 )
 
 DEFAULT_WELCOME = (
-    "Здравствуйте.\n\n"
-    "Я — виртуальный консультант, созданный на основе классических подходов сексологии. Здесь Вы сможете спокойно и анонимно обсудить любые вопросы, связанные с интимной сферой, отношениями или сексуальным здоровьем. Всё, что вы напишете, остаётся между нами.\n\n"
-    "Моя задача — не ставить диагнозов, а помочь разобраться в ситуации, предложить информацию и, если потребуется, дать рекомендации, основанные на проверенных методах.\n\n"
-    "Вы можете рассказать обо всём, что вас беспокоит, — начиная с самых общих ощущений и заканчивая конкретными трудностями. Здесь нет тем, которые нельзя обсуждать, и нет оценок — только бережное отношение и профессиональная поддержка.\n\n"
-    "Если вы готовы, расскажите, с чем вы столкнулись. С чего бы вы хотели начать?"
+    "🧑‍⚕️ **Консультация сексолога (45 минут)**\n\n"
+    "Вы получите бережное, конфиденциальное пространство, где можно:\n"
+    "• Открыто и без осуждения рассказать о том, что вас беспокоит\n"
+    "• Разобраться в возможных причинах трудностей (влечение, возбуждение, оргазм, отношения)\n"
+    "• Получить конкретные упражнения и техники, адаптированные под вашу ситуацию\n"
+    "• Узнать, когда стоит обратиться к врачу (уролог, гинеколог, психотерапевт)\n"
+    "• Задать уточняющие вопросы и почувствовать опору\n\n"
+    "В основе работы – проверенные подходы, описанные в классических трудах по сексологии.\n"
+    "Консультация не заменяет приём живого специалиста, но даёт ясность и направление.\n\n"
+    "🎁 Ваша первая консультация **бесплатно!**\n\n"
+    "Нажмите на кнопку ниже чтобы начать. "
 )
 
 START_KEYBOARD = ReplyKeyboardMarkup([["Начать сессию"]], resize_keyboard=True)
 END_KEYBOARD = ReplyKeyboardMarkup([["Завершить сессию"]], resize_keyboard=True)
 
-# ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
-def ensure_user_data(context: ContextTypes.DEFAULT_TYPE):
-    """Гарантирует, что в context.user_data есть нужные ключи."""
-    if 'last_session_end' not in context.user_data:
-        context.user_data['last_session_end'] = 0
-    if 'history' not in context.user_data:
-        context.user_data['history'] = []
-    if 'awaiting_feedback' not in context.user_data:
-        context.user_data['awaiting_feedback'] = False
+# Inline-кнопка для бесплатной консультации
+FREE_KEYBOARD = InlineKeyboardMarkup([
+    [InlineKeyboardButton("🎁 Начать бесплатную консультацию", callback_data="free_consultation")]
+])
 
+# ===== КЛАСС ДЛЯ РАБОТЫ С БАЗОЙ ДАННЫХ =====
+class Database:
+    def __init__(self, dsn: str):
+        self.dsn = dsn
+        self.pool = None
+
+    async def connect(self):
+        self.pool = await asyncpg.create_pool(self.dsn, min_size=1, max_size=10)
+
+    async def close(self):
+        if self.pool:
+            await self.pool.close()
+
+    async def init_tables(self):
+        """Создаёт таблицы, если их нет."""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id BIGINT PRIMARY KEY,
+                    free_used BOOLEAN DEFAULT false,
+                    last_session_end TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ DEFAULT now()
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    session_id SERIAL PRIMARY KEY,
+                    user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                    start_time TIMESTAMPTZ NOT NULL,
+                    expiry_time TIMESTAMPTZ NOT NULL,
+                    status TEXT DEFAULT 'active'
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    id SERIAL PRIMARY KEY,
+                    session_id INTEGER REFERENCES sessions(session_id) ON DELETE CASCADE,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT now()
+                )
+            """)
+
+    async def get_or_create_user(self, user_id: int) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO users (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING",
+                user_id
+            )
+
+    async def is_free_used(self, user_id: int) -> bool:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchval(
+                "SELECT free_used FROM users WHERE user_id = $1",
+                user_id
+            )
+            return row if row is not None else False
+
+    async def set_free_used(self, user_id: int) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET free_used = true WHERE user_id = $1",
+                user_id
+            )
+
+    async def update_last_session_end(self, user_id: int) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET last_session_end = now() WHERE user_id = $1",
+                user_id
+            )
+
+    async def get_last_session_end(self, user_id: int) -> float | None:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchval(
+                "SELECT last_session_end FROM users WHERE user_id = $1",
+                user_id
+            )
+            if row:
+                return row.timestamp()
+            return None
+
+    async def create_session(self, user_id: int, start_time: float, expiry_time: float) -> int:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "INSERT INTO sessions (user_id, start_time, expiry_time) VALUES ($1, to_timestamp($2), to_timestamp($3)) RETURNING session_id",
+                user_id, start_time, expiry_time
+            )
+            return row['session_id']
+
+    async def get_active_session(self, user_id: int) -> dict | None:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT session_id, start_time, expiry_time FROM sessions WHERE user_id = $1 AND status = 'active' AND expiry_time > now()",
+                user_id
+            )
+            return dict(row) if row else None
+
+    async def add_message(self, session_id: int, role: str, content: str) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO messages (session_id, role, content) VALUES ($1, $2, $3)",
+                session_id, role, content
+            )
+
+    async def get_session_history(self, session_id: int, limit: int = 30) -> list[dict]:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT role, content FROM messages WHERE session_id = $1 ORDER BY created_at ASC LIMIT $2",
+                session_id, limit
+            )
+            return [dict(row) for row in rows]
+
+    async def delete_session(self, session_id: int) -> None:
+        """Удаляет сессию и все её сообщения (каскадно)."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM sessions WHERE session_id = $1",
+                session_id
+            )
+
+# ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 def split_long_message(text: str, max_length: int = 4096) -> list[str]:
     if len(text) <= max_length:
         return [text]
@@ -451,51 +591,19 @@ async def refresh_timer(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
             )
             context.user_data['timer_task'] = task
 
-async def cleanup_session(context: ContextTypes.DEFAULT_TYPE, clear_history: bool = True, chat_id: int = None):
-    timer_task = context.user_data.get('timer_task')
-    if timer_task and not timer_task.done():
-        timer_task.cancel()
-        try:
-            await timer_task
-        except asyncio.CancelledError:
-            pass
-    exp_task = context.user_data.get('expiration_task')
-    if exp_task and not exp_task.done():
-        exp_task.cancel()
-        try:
-            await exp_task
-        except asyncio.CancelledError:
-            pass
-    typing_task = context.user_data.get('typing_task')
-    if typing_task and not typing_task.done():
-        typing_task.cancel()
-        try:
-            await typing_task
-        except asyncio.CancelledError:
-            pass
-    if chat_id:
-        timer_msg_id = context.user_data.get('timer_message_id')
-        if timer_msg_id:
-            try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=timer_msg_id)
-            except:
-                pass
-    if 'history' in context.user_data and context.user_data['history']:
-        context.user_data['last_session_end'] = time.time()
-    if clear_history:
-        context.user_data['history'] = []
-    context.user_data.pop('timer_task', None)
-    context.user_data.pop('timer_message_id', None)
-    context.user_data.pop('expiration_task', None)
-    context.user_data.pop('typing_task', None)
-    context.user_data.pop('session_start_time', None)
-
-async def end_session_by_timeout(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
-    if 'session_start_time' not in context.user_data:
-        return
-    history = context.user_data.get('history', []).copy()
+# ===== ОСНОВНЫЕ ФУНКЦИИ СЕССИИ =====
+async def finish_session(chat_id: int, context: ContextTypes.DEFAULT_TYPE, is_timeout: bool = False):
+    """Завершает сессию, генерирует итог, удаляет историю из БД, обновляет last_session_end."""
+    db: Database = context.bot_data['db']
+    session_id = context.user_data.get('session_id')
     user_id = context.user_data.get('user_id')
-    await cleanup_session(context, clear_history=False, chat_id=chat_id)
+    if not session_id or not user_id:
+        return
+
+    # Получаем историю для итога
+    history = await db.get_session_history(session_id, limit=MAX_HISTORY*2)
+
+    # Генерация итога
     typing_task = asyncio.create_task(send_typing_periodically(chat_id, context))
     try:
         if USE_AI_END and history:
@@ -505,16 +613,269 @@ async def end_session_by_timeout(chat_id: int, context: ContextTypes.DEFAULT_TYP
             final_message = END_MESSAGE
     finally:
         await stop_typing(typing_task)
+
+    # Отправка итога
     parts = split_long_message(final_message)
     for i, part in enumerate(parts):
         if i == 0:
             await context.bot.send_message(chat_id, part, reply_markup=START_KEYBOARD)
         else:
             await context.bot.send_message(chat_id, part)
-    context.user_data['last_session_end'] = time.time()
+
+    # Обновляем время последней сессии
+    await db.update_last_session_end(user_id)
+
+    # Удаляем сессию и все сообщения
+    await db.delete_session(session_id)
+
+    # Очистка временных данных
+    context.user_data.pop('session_id', None)
+    context.user_data.pop('session_start_time', None)
+    context.user_data.pop('user_id', None)
+    # Отменяем таймеры
+    timer_task = context.user_data.get('timer_task')
+    if timer_task:
+        timer_task.cancel()
+    exp_task = context.user_data.get('expiration_task')
+    if exp_task:
+        exp_task.cancel()
+    context.user_data.pop('timer_task', None)
+    context.user_data.pop('expiration_task', None)
+    context.user_data.pop('timer_message_id', None)
+
+    # Предлагаем отзыв
     await ask_feedback(chat_id, context)
 
-# ===== ОТЗЫВЫ (без сохранения) =====
+async def start_session_core(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE, is_free: bool = False):
+    """Запускает сессию (общая логика)."""
+    db: Database = context.bot_data['db']
+    # Проверяем активную сессию
+    if await db.get_active_session(user_id):
+        await context.bot.send_message(chat_id, "У вас уже есть активная сессия.", reply_markup=END_KEYBOARD)
+        return
+
+    start_time = time.time()
+    expiry_time = start_time + SESSION_DURATION
+    session_id = await db.create_session(user_id, start_time, expiry_time)
+
+    context.user_data['session_id'] = session_id
+    context.user_data['user_id'] = user_id
+    context.user_data['session_start_time'] = start_time
+
+    # Запуск таймера окончания
+    async def timeout_wrapper():
+        await asyncio.sleep(SESSION_DURATION)
+        await finish_session(chat_id, context, is_timeout=True)
+
+    context.user_data['expiration_task'] = asyncio.create_task(timeout_wrapper())
+
+    # Отправка приветствия
+    typing_task = asyncio.create_task(send_typing_periodically(chat_id, context))
+    try:
+        if USE_AI_WELCOME:
+            welcome_text = await generate_welcome_message()
+            if not welcome_text:
+                welcome_text = DEFAULT_WELCOME
+        else:
+            welcome_text = DEFAULT_WELCOME
+    finally:
+        await stop_typing(typing_task)
+
+    await context.bot.send_message(chat_id, welcome_text, reply_markup=END_KEYBOARD)
+    await refresh_timer(chat_id, context)
+    print(f"✅ Сессия начата для {user_id} (бесплатная: {is_free})")
+
+async def start_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /start и кнопки «Начать сессию»."""
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    db: Database = context.bot_data['db']
+
+    # Создаём пользователя, если его нет
+    await db.get_or_create_user(user_id)
+
+    # Проверка активной сессии
+    if context.user_data.get('session_id'):
+        await update.message.reply_text("У вас уже есть активная сессия.", reply_markup=END_KEYBOARD)
+        return
+
+    # Проверка кулдауна
+    last_end = await db.get_last_session_end(user_id)
+    if last_end and (time.time() - last_end) < COOLDOWN_SECONDS:
+        remaining = COOLDOWN_SECONDS - (time.time() - last_end)
+        hours_left = int(remaining // 3600)
+        minutes_left = int((remaining % 3600) // 60)
+        await update.message.reply_text(
+            f"Здравствуйте, мы рады вас видеть! "
+            f"Для более эффективной работы необходимо делать перерывы между консультациями. Возвращайтесь через {hours_left} ч {minutes_left} мин.",
+            reply_markup=START_KEYBOARD
+        )
+        return
+
+    # Бесплатная консультация
+    if FREE_CONSULTATION_ENABLED:
+        free_used = await db.is_free_used(user_id)
+        if not free_used:
+            # Показываем описание бесплатной консультации и кнопку
+            await update.message.reply_text(FREE_CONSULTATION_TEXT, parse_mode='Markdown', reply_markup=FREE_KEYBOARD)
+            return
+
+    # Если бесплатная уже использована или отключена – переходим к оплате
+    if PAYMENT_ENABLED:
+        # Отправляем инвойс
+        service_text = (
+            "🧑‍⚕️ **Консультация сексолога (45 минут)**\n\n"
+            "Вы получите бережное, конфиденциальное пространство, где можно:\n"
+            "• Открыто и без осуждения рассказать о том, что вас беспокоит\n"
+            "• Разобраться в возможных причинах трудностей (влечение, возбуждение, оргазм, отношения)\n"
+            "• Получить конкретные упражнения и техники, адаптированные под вашу ситуацию\n"
+            "• Узнать, когда стоит обратиться к врачу (уролог, гинеколог, психотерапевт)\n"
+            "• Задать уточняющие вопросы и почувствовать опору\n\n"
+            "В основе работы – проверенные подходы, описанные в классических трудах по сексологии.\n"
+            "Консультация не заменяет приём живого специалиста, но даёт ясность и направление.\n\n"
+            f"💰 Стоимость: {PRICE/100} {CURRENCY}\n\n"
+            "Консультация начнётся сразу после оплаты.\n\n"
+        )
+        await update.message.reply_text(service_text, parse_mode='Markdown')
+        await send_invoice(chat_id, context)
+    else:
+        # Платежи отключены – стартуем сессию сразу
+        await start_session_core(chat_id, user_id, context, is_free=False)
+
+async def free_consultation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик нажатия на кнопку бесплатной консультации."""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    chat_id = query.message.chat_id
+    db: Database = context.bot_data['db']
+
+    # Проверка, не использована ли уже бесплатная
+    free_used = await db.is_free_used(user_id)
+    if free_used:
+        await query.edit_message_text("Вы уже использовали бесплатную консультацию. Следующие сессии – платные.")
+        return
+
+    # Проверка активной сессии
+    if context.user_data.get('session_id'):
+        await query.edit_message_text("У вас уже есть активная сессия. Завершите её перед началом новой.")
+        return
+
+    # Проверка кулдауна
+    last_end = await db.get_last_session_end(user_id)
+    if last_end and (time.time() - last_end) < COOLDOWN_SECONDS:
+        remaining = COOLDOWN_SECONDS - (time.time() - last_end)
+        hours_left = int(remaining // 3600)
+        minutes_left = int((remaining % 3600) // 60)
+        await query.edit_message_text(
+            f"Для более эффективной работы необходимо делать перерывы между консультациями. Возвращайтесь через {hours_left} ч {minutes_left} мин."
+        )
+        return
+
+    # Помечаем, что бесплатная использована
+    await db.set_free_used(user_id)
+
+    # Запускаем сессию
+    await query.edit_message_text("Начинаем бесплатную консультацию...")
+    await start_session_core(chat_id, user_id, context, is_free=True)
+
+# ===== ПЛАТЕЖИ =====
+async def send_invoice(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not PAYMENT_ENABLED or not PAYMENT_PROVIDER_TOKEN:
+        return
+    prices = [LabeledPrice(label="Сессия (45 мин)", amount=PRICE)]
+    provider_data = json.dumps({
+        "receipt": {
+            "items": [{
+                "description": "Консультация (45 минут)",
+                "quantity": "1.00",
+                "amount": {"value": f"{PRICE/100:.2f}", "currency": CURRENCY},
+                "vat_code": 1
+            }]
+        }
+    })
+    invoice_message = await context.bot.send_invoice(
+        chat_id=chat_id,
+        title="Оплата сессии",
+        description="Одна консультация (45 минут).",
+        payload="session_payment",
+        provider_token=PAYMENT_PROVIDER_TOKEN,
+        currency=CURRENCY,
+        prices=prices,
+        provider_data=provider_data,
+        need_email=True,
+        send_email_to_provider=True
+    )
+    return invoice_message
+
+async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not PAYMENT_ENABLED:
+        await update.message.reply_text("Платёжные функции отключены администратором.")
+        return
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    db: Database = context.bot_data['db']
+
+    # Проверка бесплатной консультации
+    if FREE_CONSULTATION_ENABLED:
+        free_used = await db.is_free_used(user_id)
+        if not free_used:
+            # Предлагаем бесплатную вместо оплаты
+            await update.message.reply_text(FREE_CONSULTATION_TEXT, parse_mode='Markdown', reply_markup=FREE_KEYBOARD)
+            return
+
+    # Проверка активной сессии
+    if context.user_data.get('session_id'):
+        await update.message.reply_text("У вас уже есть активная сессия.", reply_markup=END_KEYBOARD)
+        return
+
+    # Проверка кулдауна
+    last_end = await db.get_last_session_end(user_id)
+    if last_end and (time.time() - last_end) < COOLDOWN_SECONDS:
+        remaining = COOLDOWN_SECONDS - (time.time() - last_end)
+        hours_left = int(remaining // 3600)
+        minutes_left = int((remaining % 3600) // 60)
+        await update.message.reply_text(
+            f"Для более эффективной работы необходимо делать перерывы между консультациями. Возвращайтесь через {hours_left} ч {minutes_left} мин."
+        )
+        return
+
+    await send_invoice(chat_id, context)
+
+async def pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if PAYMENT_ENABLED:
+        await update.pre_checkout_query.answer(ok=True)
+    else:
+        await update.pre_checkout_query.answer(ok=False, error_message="Платежи временно недоступны.")
+
+async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not PAYMENT_ENABLED:
+        await update.message.reply_text("Платежи отключены, сессия не может быть начата.")
+        return
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    db: Database = context.bot_data['db']
+
+    # Удаляем служебные сообщения
+    service_msg_id = context.user_data.get('service_message_id')
+    if service_msg_id:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=service_msg_id)
+        except:
+            pass
+        context.user_data.pop('service_message_id', None)
+    invoice_msg_id = context.user_data.get('invoice_message_id')
+    if invoice_msg_id:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=invoice_msg_id)
+        except:
+            pass
+        context.user_data.pop('invoice_message_id', None)
+
+    await update.message.reply_text("✅ Оплата прошла успешно! Сейчас начнём сессию.", reply_markup=END_KEYBOARD)
+    await start_session_core(chat_id, user_id, context, is_free=False)
+
+# ===== ОТЗЫВЫ =====
 async def ask_feedback(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📝 Оставить отзыв", callback_data="feedback_yes")],
@@ -542,240 +903,56 @@ async def feedback_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def view_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Просмотр отзывов отключён (хранение не ведётся).")
 
-# ===== ПЛАТЕЖИ =====
-async def send_invoice(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not PAYMENT_ENABLED or not PAYMENT_PROVIDER_TOKEN:
-        return
-    prices = [LabeledPrice(label="Сессия (40 мин)", amount=PRICE)]
-    provider_data = json.dumps({
-        "receipt": {
-            "items": [{
-                "description": "Консультация (40 минут)",
-                "quantity": "1.00",
-                "amount": {"value": f"{PRICE/100:.2f}", "currency": CURRENCY},
-                "vat_code": 1
-            }]
-        }
-    })
-    invoice_message = await context.bot.send_invoice(
-        chat_id=chat_id,
-        title="Оплата сессии",
-        description="Одна консультация (40 минут).",
-        payload="session_payment",
-        provider_token=PAYMENT_PROVIDER_TOKEN,
-        currency=CURRENCY,
-        prices=prices,
-        provider_data=provider_data,
-        need_email=True,
-        send_email_to_provider=True
-    )
-    return invoice_message
-
-async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not PAYMENT_ENABLED:
-        await update.message.reply_text("Платёжные функции отключены администратором.")
-        return
-    chat_id = update.effective_chat.id
-    user_id = update.effective_user.id
-    ensure_user_data(context)
-    if 'session_start_time' in context.user_data:
-        await context.bot.send_message(chat_id, "У вас уже есть активная сессия.", reply_markup=END_KEYBOARD)
-        return
-    last_end = context.user_data.get('last_session_end', 0)
-    if last_end and (time.time() - last_end) < COOLDOWN_SECONDS:
-        remaining = COOLDOWN_SECONDS - (time.time() - last_end)
-        hours_left = int(remaining // 3600)
-        minutes_left = int((remaining % 3600) // 60)
-        await context.bot.send_message(
-            chat_id,
-            f"Здравствуйте, мы рады вас видеть! "
-            f"Для более эффективной работы необходимо делать перерывы между консультациями. Возвращайтесь через {hours_left} ч {minutes_left} мин.",
-            reply_markup=START_KEYBOARD
-        )
-        return
-    invoice_message = await send_invoice(chat_id, context)
-    if invoice_message:
-        context.user_data['invoice_message_id'] = invoice_message.message_id
-
-async def pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if PAYMENT_ENABLED:
-        await update.pre_checkout_query.answer(ok=True)
-    else:
-        await update.pre_checkout_query.answer(ok=False, error_message="Платежи временно недоступны.")
-
-async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not PAYMENT_ENABLED:
-        await update.message.reply_text("Платежи отключены, сессия не может быть начата.")
-        return
-    user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-    # Удаляем служебные сообщения
-    service_msg_id = context.user_data.get('service_message_id')
-    if service_msg_id:
-        try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=service_msg_id)
-        except:
-            pass
-        context.user_data.pop('service_message_id', None)
-    invoice_msg_id = context.user_data.get('invoice_message_id')
-    if invoice_msg_id:
-        try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=invoice_msg_id)
-        except:
-            pass
-        context.user_data.pop('invoice_message_id', None)
-    await update.message.reply_text("✅ Оплата прошла успешно! Сейчас начнём сессию.", reply_markup=END_KEYBOARD)
-    await start_session_core(chat_id, user_id, context)
-
-# ===== ОСНОВНЫЕ ФУНКЦИИ СЕССИИ =====
-async def start_session_core(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE):
-    ensure_user_data(context)
-    context.user_data['user_id'] = user_id
-    context.user_data['history'] = []
-    context.user_data['session_start_time'] = time.time()
-
-    async def timeout_wrapper():
-        await asyncio.sleep(SESSION_DURATION)
-        await end_session_by_timeout(chat_id, context)
-
-    context.user_data['expiration_task'] = asyncio.create_task(timeout_wrapper())
-
-    typing_task = asyncio.create_task(send_typing_periodically(chat_id, context))
-    try:
-        if USE_AI_WELCOME:
-            welcome_text = await generate_welcome_message()
-            if not welcome_text:
-                welcome_text = DEFAULT_WELCOME
-        else:
-            welcome_text = DEFAULT_WELCOME
-    finally:
-        await stop_typing(typing_task)
-
-    await context.bot.send_message(chat_id, welcome_text, reply_markup=END_KEYBOARD)
-    await refresh_timer(chat_id, context)
-    print(f"✅ Сессия начата для {user_id}.")
-
-async def start_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print("🟢 Запуск start_session")
-    user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-    ensure_user_data(context)
-
-    # Если уже есть активная сессия
-    if 'session_start_time' in context.user_data:
-        await update.message.reply_text(
-            "У вас уже есть активная сессия. Завершите её командой /end или кнопкой.",
-            reply_markup=END_KEYBOARD
-        )
-        return
-
-    # Проверка кулдауна
-    last_end = context.user_data.get('last_session_end', 0)
-    if last_end and (time.time() - last_end) < COOLDOWN_SECONDS:
-        remaining = COOLDOWN_SECONDS - (time.time() - last_end)
-        hours_left = int(remaining // 3600)
-        minutes_left = int((remaining % 3600) // 60)
-        await update.message.reply_text(
-            f"Здравствуйте, мы рады вас видеть! "
-            f"Для более эффективной работы необходимо делать перерывы между консультациями. Возвращайтесь через {hours_left} ч {minutes_left} мин.",
-            reply_markup=START_KEYBOARD
-        )
-        return
-
-    # Если платежи отключены — стартуем сессию сразу
-    if not PAYMENT_ENABLED:
-        await start_session_core(chat_id, user_id, context)
-        return
-
-    # Иначе — отправляем инвойс
-    service_text = (
-        "🧑‍⚕️ **Консультация сексолога (45 минут)**\n\n"
-        "Вы получите бережное, конфиденциальное пространство, где можно:\n"
-        "• Открыто и без осуждения рассказать о том, что вас беспокоит\n"
-        "• Разобраться в возможных причинах трудностей (влечение, возбуждение, оргазм, отношения)\n"
-        "• Получить конкретные упражнения и техники, адаптированные под вашу ситуацию\n"
-        "• Узнать, когда стоит обратиться к врачу (уролог, гинеколог, психотерапевт)\n"
-        "• Задать уточняющие вопросы и почувствовать опору\n\n"
-        "В основе работы – проверенные подходы, описанные в классических трудах по сексологии.\n"
-        "Консультация не заменяет приём живого специалиста, но даёт ясность и направление.\n\n"
-        f"💰 Стоимость: {PRICE/100} {CURRENCY}\n\n"
-        "Консультация начнётся сразу после оплаты.\n\n"
-    )
-    service_msg = await update.message.reply_text(service_text, parse_mode='Markdown')
-    context.user_data['service_message_id'] = service_msg.message_id
-    invoice_message = await send_invoice(chat_id, context)
-    if invoice_message:
-        context.user_data['invoice_message_id'] = invoice_message.message_id
-    else:
-        await update.message.reply_text("Платёжный сервис временно недоступен. Попробуйте позже.")
-
-async def end(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print("🔚 Получена команда /end")
-    chat_id = update.effective_chat.id
-    user_id = update.effective_user.id
-    ensure_user_data(context)
-    if 'session_start_time' not in context.user_data:
-        await update.message.reply_text("Сейчас нет активной сессии.", reply_markup=START_KEYBOARD)
-        return
-    history = context.user_data.get('history', []).copy()
-    await cleanup_session(context, clear_history=False, chat_id=chat_id)
-    typing_task = asyncio.create_task(send_typing_periodically(chat_id, context))
-    try:
-        if USE_AI_END and history:
-            summary = await generate_session_summary(history)
-            final_message = summary if summary else END_MESSAGE
-        else:
-            final_message = END_MESSAGE
-    finally:
-        await stop_typing(typing_task)
-    parts = split_long_message(final_message)
-    for i, part in enumerate(parts):
-        if i == 0:
-            await context.bot.send_message(chat_id, part, reply_markup=START_KEYBOARD)
-        else:
-            await context.bot.send_message(chat_id, part)
-    context.user_data['last_session_end'] = time.time()
-    await ask_feedback(chat_id, context)
-
+# ===== ОБРАБОТЧИК СООБЩЕНИЙ =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
+    db: Database = context.bot_data['db']
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
 
-    ensure_user_data(context)
-
+    # Проверка на ожидание отзыва
     if context.user_data.get('awaiting_feedback'):
         feedback_text = user_message
-        user_id = update.effective_user.id
         username = update.effective_user.username or "без имени"
         if AUTHOR_CHAT_ID:
             try:
-                await context.bot.send_message(chat_id=int(AUTHOR_CHAT_ID), text=f"📬 Новый отзыв:\n\n{feedback_text}")
+                await context.bot.send_message(
+                    chat_id=int(AUTHOR_CHAT_ID),
+                    text=f"📬 Новый отзыв от @{username} (ID {user_id}):\n\n{feedback_text}"
+                )
             except Exception as e:
                 print(f"Не удалось отправить отзыв автору: {e}")
-        await update.message.reply_text("Спасибо за ваш отзыв! Он очень важен для меня.", reply_markup=START_KEYBOARD)
+        await update.message.reply_text("Спасибо за ваш отзыв!", reply_markup=START_KEYBOARD)
         context.user_data['awaiting_feedback'] = False
         return
 
+    # Обработка кнопок
     if user_message == "Начать сессию":
         await start_session(update, context)
         return
-
     if user_message == "Завершить сессию":
         await end(update, context)
         return
 
-    if 'session_start_time' not in context.user_data:
+    # Проверка активной сессии
+    session_id = context.user_data.get('session_id')
+    if not session_id:
         await update.message.reply_text("Сейчас нет активной сессии. Нажмите «Начать сессию».", reply_markup=START_KEYBOARD)
         return
 
-    typing_task = asyncio.create_task(send_typing_periodically(update.effective_chat.id, context))
+    # Добавляем сообщение пользователя в БД
+    await db.add_message(session_id, 'user', user_message)
+
+    # Получаем историю из БД
+    history = await db.get_session_history(session_id, limit=MAX_HISTORY*2)
+
+    # Формируем запрос к AI
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for msg in history:
+        messages.append({"role": msg['role'], "content": msg['content']})
+
+    typing_task = asyncio.create_task(send_typing_periodically(chat_id, context))
     context.user_data['typing_task'] = typing_task
-
-    context.user_data['history'].append({"role": "user", "content": user_message})
-    if len(context.user_data['history']) > MAX_HISTORY * 2:
-        context.user_data['history'] = context.user_data['history'][-MAX_HISTORY*2:]
-
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + context.user_data['history']
-
     try:
         response = await asyncio.to_thread(
             openai.ChatCompletion.create,
@@ -785,50 +962,61 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             temperature=1
         )
         clean_reply = response.choices[0].message.content
-        context.user_data['history'].append({"role": "assistant", "content": clean_reply})
-        if len(context.user_data['history']) > MAX_HISTORY * 2:
-            context.user_data['history'] = context.user_data['history'][-MAX_HISTORY*2:]
-
-        await stop_typing(typing_task)
-        context.user_data.pop('typing_task', None)
-
+        # Сохраняем ответ
+        await db.add_message(session_id, 'assistant', clean_reply)
+        # Отправляем пользователю
         parts = split_long_message(clean_reply)
         for i, part in enumerate(parts):
             if i == 0:
                 await update.message.reply_text(part, reply_markup=END_KEYBOARD)
             else:
                 await update.message.reply_text(part)
-
-        await refresh_timer(update.effective_chat.id, context)
-
+        await refresh_timer(chat_id, context)
     except Exception as e:
         print(f"❌ Ошибка при запросе к DeepSeek: {e}")
+        await update.message.reply_text("Извините, произошла техническая ошибка. Попробуйте позже.", reply_markup=END_KEYBOARD)
+    finally:
         await stop_typing(typing_task)
         context.user_data.pop('typing_task', None)
-        error_message = "Извините, произошла техническая ошибка. Пожалуйста, попробуйте позже."
-        await update.message.reply_text(error_message, reply_markup=END_KEYBOARD)
-        await refresh_timer(update.effective_chat.id, context)
 
-def main():
+async def end(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    await finish_session(chat_id, context, is_timeout=False)
+
+# ===== ЗАПУСК =====
+async def main():
     print("🚀 Запуск бота...")
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    # Инициализация базы данных
+    db = Database(DATABASE_URL)
+    await db.connect()
+    await db.init_tables()
 
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app.bot_data['db'] = db
+
+    # Обработчики команд
     app.add_handler(CommandHandler("start", start_session))
     app.add_handler(CommandHandler("end", end))
     app.add_handler(CommandHandler("feedback", feedback_command))
     app.add_handler(CommandHandler("view_feedback", view_feedback))
-
     if PAYMENT_ENABLED:
         app.add_handler(CommandHandler("buy", buy))
         app.add_handler(PreCheckoutQueryHandler(pre_checkout))
         app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
 
+    # Обработчики callback
+    app.add_handler(CallbackQueryHandler(free_consultation_callback, pattern="^free_consultation$"))
     app.add_handler(CallbackQueryHandler(feedback_callback, pattern="^feedback_"))
 
+    # Обработчик текстовых сообщений
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("✅ Обработчики добавлены")
-    app.run_polling(timeout=50, drop_pending_updates=True)
+    await app.run_polling(timeout=50, drop_pending_updates=True)
+
+    # Закрываем соединение с БД после остановки
+    await db.close()
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
