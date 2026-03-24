@@ -985,17 +985,16 @@ async def end(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===== ЗАПУСК =====
 async def main():
-    """Асинхронная главная функция."""
+    print("🚀 Запуск бота...")
     # Инициализация базы данных
     db = Database(DATABASE_URL)
     await db.connect()
     await db.init_tables()
 
-    # Создание приложения
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.bot_data['db'] = db
 
-    # Добавление обработчиков
+    # Обработчики команд
     app.add_handler(CommandHandler("start", start_session))
     app.add_handler(CommandHandler("end", end))
     app.add_handler(CommandHandler("feedback", feedback_command))
@@ -1005,22 +1004,19 @@ async def main():
         app.add_handler(PreCheckoutQueryHandler(pre_checkout))
         app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
 
+    # Обработчики callback
     app.add_handler(CallbackQueryHandler(free_consultation_callback, pattern="^free_consultation$"))
     app.add_handler(CallbackQueryHandler(feedback_callback, pattern="^feedback_"))
+
+    # Обработчик текстовых сообщений
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("✅ Обработчики добавлены")
-
-    # Запуск поллинга
     await app.run_polling(timeout=50, drop_pending_updates=True)
 
+    # Закрываем соединение с БД после остановки
+    await db.close()
+
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except RuntimeError as e:
-        # Если цикл уже запущен (например, в среде Bothost), используем существующий
-        if "already running" in str(e):
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(main())
-        else:
-            raise
+    import asyncio
+    asyncio.run(main())
