@@ -1019,4 +1019,16 @@ async def main():
 
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(main())
+
+    # Проверяем, есть ли уже запущенный цикл событий
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is None:
+        # Цикл не запущен — запускаем новый
+        asyncio.run(main())
+    else:
+        # Цикл уже работает — добавляем main() как задачу в этот цикл
+        loop.create_task(main())
