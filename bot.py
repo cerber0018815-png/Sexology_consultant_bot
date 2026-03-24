@@ -4,6 +4,7 @@ import openai
 import sys
 import os
 import json
+import signal
 from datetime import datetime
 from dotenv import load_dotenv
 import asyncpg
@@ -1012,23 +1013,42 @@ async def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("✅ Обработчики добавлены")
-    await app.run_polling(timeout=50, drop_pending_updates=True)
 
-    # Закрываем соединение с БД после остановки
+    # Инициализация и запуск бота вручную
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+
+    print("✅ Бот запущен и ожидает сообщения")
+
+    # Создаём событие для ожидания остановки
+    stop_event = asyncio.Event()
+
+    # Обрабатываем сигналы завершения (SIGINT, SIGTERM)
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, stop_event.set)
+
+    # Ждём, пока не придёт сигнал остановки
+    await stop_event.wait()
+
+    print("🛑 Остановка бота...")
+    await app.updater.stop()
+    await app.stop()
+    await app.shutdown()
     await db.close()
+    print("✅ Бот остановлен")
 
 if __name__ == "__main__":
     import asyncio
+    import signal
 
-    # Проверяем, есть ли уже запущенный цикл событий
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = None
 
     if loop is None:
-        # Цикл не запущен — запускаем новый
         asyncio.run(main())
     else:
-        # Цикл уже работает — добавляем main() как задачу в этот цикл
         loop.create_task(main())
