@@ -62,7 +62,7 @@ openai.api_key = DEEPSEEK_API_KEY
 # ===== КОНСТАНТЫ =====
 MAX_HISTORY = 30
 SESSION_DURATION = 45 * 60          # 45 минут
-COOLDOWN_SECONDS = 24 * 60 * 60     # 24 часа
+COOLDOWN_SECONDS = 1 * 60 * 1     # 24 часа
 TIMER_UPDATE_INTERVAL = 60
 
 END_MESSAGE = (
@@ -708,7 +708,7 @@ async def start_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
         minutes_left = int((remaining % 3600) // 60)
         await update.message.reply_text(
             f"Здравствуйте, мы рады вас видеть! "
-            f"Для более эффективной работы необходимо делать перерывы между консультациями. Возвращайтесь через {hours_left} ч {minutes_left} мин.",
+            f"Для более эффективной работы необходимо делать перерывы между консультациями. Консультация будет доступна через {hours_left} ч {minutes_left} мин.",
             reply_markup=START_KEYBOARD
         )
         return
