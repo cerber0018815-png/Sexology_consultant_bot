@@ -801,7 +801,7 @@ async def free_consultation_callback(update: Update, context: ContextTypes.DEFAU
         hours_left = int(remaining // 3600)
         minutes_left = int((remaining % 3600) // 60)
         await query.edit_message_text(
-            f"Для более эффективной работы необходимо делать перерывы между консультациями. Возвращайтесь через {hours_left} ч {minutes_left} мин."
+            f"Для более эффективной работы необходимо делать перерывы между консультациями. Доступ к новой консультации откроется через {hours_left} ч {minutes_left} мин."
         )
         return
 
@@ -877,7 +877,7 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         hours_left = int(remaining // 3600)
         minutes_left = int((remaining % 3600) // 60)
         await update.message.reply_text(
-            f"Для более эффективной работы необходимо делать перерывы между консультациями. Возвращайтесь через {hours_left} ч {minutes_left} мин."
+            f"Для более эффективной работы необходимо делать перерывы между консультациями. Доступ к новой консультации откроется через {hours_left} ч {minutes_left} мин."
         )
         return
 
