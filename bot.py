@@ -717,7 +717,7 @@ async def start_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
         minutes_left = int((remaining % 3600) // 60)
         await update.message.reply_text(
             f"Здравствуйте, мы рады вас видеть! "
-            f"Для более эффективной работы необходимо делать перерывы между консультациями. Возвращайтесь через {hours_left} ч {minutes_left} мин.",
+            f"Для более эффективной работы необходимо делать перерывы между консультациями. Доступ к новой консультации откроется через {hours_left} ч {minutes_left} мин.",
             reply_markup=START_KEYBOARD
         )
         return
