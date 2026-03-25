@@ -959,7 +959,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 await context.bot.send_message(
                     chat_id=int(AUTHOR_CHAT_ID),
-                    text=f"📬 Новый отзыв от @{username} (ID {user_id}):\n\n{feedback_text}"
+                    text=f"📬 Новый отзыв:\n\n{feedback_text}"
                 )
             except Exception as e:
                 print(f"Не удалось отправить отзыв автору: {e}")
