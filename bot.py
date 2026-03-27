@@ -868,7 +868,7 @@ async def ask_feedback(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await context.bot.send_message(
         chat_id=chat_id,
-        text="Вы можете оставить отзыв о прошедшей сессии, если захотите.",
+        text="Вы можете оставить анонимный отзыв о работе сервиса, если захотите.",
         reply_markup=reply_markup
     )
 
