@@ -5,6 +5,7 @@ import sys
 import os
 import json
 import signal
+import uuid
 from datetime import datetime
 from dotenv import load_dotenv
 import asyncpg
@@ -23,7 +24,7 @@ DATABASE_URL = os.getenv('DATABASE_URL')
 PAYMENT_PROVIDER_TOKEN = os.getenv('PAYMENT_PROVIDER_TOKEN')
 CURRENCY = os.getenv('CURRENCY', 'RUB')
 PRICE = int(os.getenv('PRICE', 15000))          # цена в копейках
-AUTHOR_CHAT_ID = os.getenv('AUTHOR_CHAT_ID')    # Telegram ID администратора для отзывов
+AUTHOR_CHAT_ID = os.getenv('AUTHOR_CHAT_ID')    # Telegram ID администратора
 
 # Флаги AI
 USE_AI_WELCOME = os.getenv('USE_AI_WELCOME', 'True').lower() in ('true', '1', 'yes')
@@ -122,29 +123,18 @@ class Database:
                 CREATE TABLE IF NOT EXISTS users (
                     user_id BIGINT PRIMARY KEY,
                     free_used BOOLEAN DEFAULT false,
-                    last_session_end TIMESTAMPTZ,
-                    created_at TIMESTAMPTZ DEFAULT now()
+                    last_session_end TIMESTAMPTZ
                 )
             """)
             await conn.execute("""
-                CREATE TABLE IF NOT EXISTS sessions (
-                    session_id SERIAL PRIMARY KEY,
-                    user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
-                    start_time TIMESTAMPTZ NOT NULL,
-                    expiry_time TIMESTAMPTZ NOT NULL,
-                    status TEXT DEFAULT 'active'
-                )
-            """)
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS messages (
+                CREATE TABLE IF NOT EXISTS feedback (
                     id SERIAL PRIMARY KEY,
-                    session_id INTEGER REFERENCES sessions(session_id) ON DELETE CASCADE,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
+                    text TEXT NOT NULL,
                     created_at TIMESTAMPTZ DEFAULT now()
                 )
             """)
 
+    # === Методы для пользователей ===
     async def get_or_create_user(self, user_id: int) -> None:
         async with self.pool.acquire() as conn:
             await conn.execute(
@@ -184,44 +174,21 @@ class Database:
                 return row.timestamp()
             return None
 
-    async def create_session(self, user_id: int, start_time: float, expiry_time: float) -> int:
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "INSERT INTO sessions (user_id, start_time, expiry_time) VALUES ($1, to_timestamp($2), to_timestamp($3)) RETURNING session_id",
-                user_id, start_time, expiry_time
-            )
-            return row['session_id']
-
-    async def get_active_session(self, user_id: int) -> dict | None:
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT session_id, start_time, expiry_time FROM sessions WHERE user_id = $1 AND status = 'active' AND expiry_time > now()",
-                user_id
-            )
-            return dict(row) if row else None
-
-    async def add_message(self, session_id: int, role: str, content: str) -> None:
+    # === Методы для отзывов (анонимные) ===
+    async def add_feedback(self, text: str) -> None:
         async with self.pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO messages (session_id, role, content) VALUES ($1, $2, $3)",
-                session_id, role, content
+                "INSERT INTO feedback (text) VALUES ($1)",
+                text
             )
 
-    async def get_session_history(self, session_id: int, limit: int = 30) -> list[dict]:
+    async def get_feedback(self, limit: int = 20) -> list[dict]:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT role, content FROM messages WHERE session_id = $1 ORDER BY created_at ASC LIMIT $2",
-                session_id, limit
+                "SELECT id, text, created_at FROM feedback ORDER BY created_at DESC LIMIT $1",
+                limit
             )
             return [dict(row) for row in rows]
-
-    async def delete_session(self, session_id: int) -> None:
-        """Удаляет сессию и все её сообщения (каскадно)."""
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                "DELETE FROM sessions WHERE session_id = $1",
-                session_id
-            )
 
 # ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 def split_long_message(text: str, max_length: int = 4096) -> list[str]:
@@ -604,15 +571,13 @@ async def refresh_timer(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
 
 # ===== ОСНОВНЫЕ ФУНКЦИИ СЕССИИ =====
 async def finish_session(chat_id: int, context: ContextTypes.DEFAULT_TYPE, is_timeout: bool = False):
-    """Завершает сессию, генерирует итог, удаляет историю из БД, обновляет last_session_end."""
-    db: Database = context.bot_data['db']
-    session_id = context.user_data.get('session_id')
+    """Завершает сессию, генерирует итог, обновляет last_session_end в БД."""
     user_id = context.user_data.get('user_id')
-    if not session_id or not user_id:
+    if not user_id:
         return
 
-    # Получаем историю для итога
-    history = await db.get_session_history(session_id, limit=MAX_HISTORY*2)
+    # Получаем историю из памяти
+    history = context.user_data.get('history', [])
 
     # Генерация итога
     typing_task = asyncio.create_task(send_typing_periodically(chat_id, context))
@@ -633,16 +598,15 @@ async def finish_session(chat_id: int, context: ContextTypes.DEFAULT_TYPE, is_ti
         else:
             await context.bot.send_message(chat_id, part)
 
-    # Обновляем время последней сессии
+    # Обновляем время последней сессии в БД
+    db: Database = context.bot_data['db']
     await db.update_last_session_end(user_id)
 
-    # Удаляем сессию и все сообщения
-    await db.delete_session(session_id)
-
-    # Очистка временных данных
+    # Очистка временных данных сессии
     context.user_data.pop('session_id', None)
     context.user_data.pop('session_start_time', None)
     context.user_data.pop('user_id', None)
+    context.user_data.pop('history', None)
     # Отменяем таймеры
     timer_task = context.user_data.get('timer_task')
     if timer_task:
@@ -658,20 +622,19 @@ async def finish_session(chat_id: int, context: ContextTypes.DEFAULT_TYPE, is_ti
     await ask_feedback(chat_id, context)
 
 async def start_session_core(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE, is_free: bool = False):
-    """Запускает сессию (общая логика)."""
-    db: Database = context.bot_data['db']
-    # Проверяем активную сессию
-    if await db.get_active_session(user_id):
+    """Запускает сессию (в памяти, без записи в БД)."""
+    # Проверяем активную сессию (в памяти)
+    if context.user_data.get('session_id'):
         await context.bot.send_message(chat_id, "У вас уже есть активная сессия.", reply_markup=END_KEYBOARD)
         return
 
     start_time = time.time()
-    expiry_time = start_time + SESSION_DURATION
-    session_id = await db.create_session(user_id, start_time, expiry_time)
+    session_id = str(uuid.uuid4())  # уникальный идентификатор сессии в памяти
 
     context.user_data['session_id'] = session_id
     context.user_data['user_id'] = user_id
     context.user_data['session_start_time'] = start_time
+    context.user_data['history'] = []   # список словарей {role, content}
 
     # Запуск таймера окончания
     async def timeout_wrapper():
@@ -705,7 +668,7 @@ async def start_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Создаём пользователя, если его нет
     await db.get_or_create_user(user_id)
 
-    # Проверка активной сессии
+    # Проверка активной сессии (в памяти)
     if context.user_data.get('session_id'):
         await update.message.reply_text("У вас уже есть активная сессия.", reply_markup=END_KEYBOARD)
         return
@@ -737,7 +700,7 @@ async def start_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
         service_text = (
             "🌟 **Добро пожаловать!**\n\n"
             "Я - виртуальный сексолог-консультант\n\n"
-            "📚 В основе моей работы – проверенные подходы, описанные в классических трудах по сексологии.\n\n"
+            "📚 В основе моей работы – проверенные подходы, описанные в классических работах по сексологии.\n\n"
             "Здесь Вы получите бережное, конфиденциальное пространство, где можно:\n\n"
             "• Открыто и без осуждения рассказать о том, что вас беспокоит\n"
             "• Разобраться в возможных причинах трудностей (влечение, возбуждение, оргазм, отношения)\n"
@@ -754,29 +717,6 @@ async def start_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # Платежи отключены или токен не задан – стартуем сессию сразу
         await start_session_core(chat_id, user_id, context, is_free=False)
-
-# ---- ДОБАВИТЬ НОВУЮ ФУНКЦИЮ ----
-async def reset_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Сбрасывает базу данных (удаляет все таблицы и создаёт заново). Доступно только администратору."""
-    # Проверка прав: только автор (администратор)
-    if AUTHOR_CHAT_ID and update.effective_user.id != int(AUTHOR_CHAT_ID):
-        await update.message.reply_text("⛔ Недостаточно прав для выполнения этой команды.")
-        return
-
-    db: Database = context.bot_data['db']
-    await update.message.reply_text("⚠️ Сброс базы данных... Это удалит все данные пользователей, сессий и сообщений.")
-
-    try:
-        async with db.pool.acquire() as conn:
-            # Удаляем схему public и создаём заново
-            await conn.execute("DROP SCHEMA public CASCADE")
-            await conn.execute("CREATE SCHEMA public")
-            await conn.execute("GRANT ALL ON SCHEMA public TO public")
-        # Пересоздаём таблицы через метод init_tables
-        await db.init_tables()
-        await update.message.reply_text("✅ База данных успешно сброшена и таблицы пересозданы.")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка при сбросе базы: {e}")
 
 async def free_consultation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик нажатия на кнопку бесплатной консультации."""
@@ -945,7 +885,22 @@ async def feedback_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await ask_feedback(update.effective_chat.id, context)
 
 async def view_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Просмотр отзывов отключён (хранение не ведётся).")
+    """Просмотр отзывов (только для администратора)."""
+    if AUTHOR_CHAT_ID and update.effective_user.id != int(AUTHOR_CHAT_ID):
+        await update.message.reply_text("⛔ Недостаточно прав для выполнения этой команды.")
+        return
+    db: Database = context.bot_data['db']
+    feedback_list = await db.get_feedback(limit=20)
+    if not feedback_list:
+        await update.message.reply_text("Пока нет отзывов.")
+        return
+    text = "📝 **Последние отзывы:**\n\n"
+    for fb in feedback_list:
+        created = fb['created_at'].strftime("%d.%m.%Y %H:%M")
+        text += f"_{created}_\n{fb['text']}\n\n"
+    parts = split_long_message(text)
+    for part in parts:
+        await update.message.reply_text(part, parse_mode='Markdown')
 
 # ===== ОБРАБОТЧИК СООБЩЕНИЙ =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -957,15 +912,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Проверка на ожидание отзыва
     if context.user_data.get('awaiting_feedback'):
         feedback_text = user_message
-        username = update.effective_user.username or "без имени"
-        if AUTHOR_CHAT_ID:
-            try:
-                await context.bot.send_message(
-                    chat_id=int(AUTHOR_CHAT_ID),
-                    text=f"📬 Новый отзыв:\n\n{feedback_text}"
-                )
-            except Exception as e:
-                print(f"Не удалось отправить отзыв автору: {e}")
+        # Сохраняем отзыв анонимно
+        await db.add_feedback(feedback_text)
         await update.message.reply_text("Спасибо за ваш отзыв!", reply_markup=START_KEYBOARD)
         context.user_data['awaiting_feedback'] = False
         return
@@ -984,11 +932,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Сейчас нет активной сессии. Нажмите «Начать сессию».", reply_markup=START_KEYBOARD)
         return
 
-    # Добавляем сообщение пользователя в БД
-    await db.add_message(session_id, 'user', user_message)
-
-    # Получаем историю из БД
-    history = await db.get_session_history(session_id, limit=MAX_HISTORY*2)
+    # Добавляем сообщение пользователя в историю (в памяти)
+    history = context.user_data.get('history', [])
+    history.append({'role': 'user', 'content': user_message})
+    # Ограничиваем историю
+    if len(history) > MAX_HISTORY:
+        history = history[-MAX_HISTORY:]
+    context.user_data['history'] = history
 
     # Формируем запрос к AI
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -1006,8 +956,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             temperature=1
         )
         clean_reply = response.choices[0].message.content
-        # Сохраняем ответ
-        await db.add_message(session_id, 'assistant', clean_reply)
+        # Сохраняем ответ в историю
+        history.append({'role': 'assistant', 'content': clean_reply})
+        if len(history) > MAX_HISTORY:
+            history = history[-MAX_HISTORY:]
+        context.user_data['history'] = history
+
         # Отправляем пользователю
         parts = split_long_message(clean_reply)
         for i, part in enumerate(parts):
@@ -1043,7 +997,6 @@ async def main():
     app.add_handler(CommandHandler("end", end))
     app.add_handler(CommandHandler("feedback", feedback_command))
     app.add_handler(CommandHandler("view_feedback", view_feedback))
-    app.add_handler(CommandHandler("resetdb", reset_db))
     if PAYMENT_ENABLED:
         app.add_handler(CommandHandler("buy", buy))
         app.add_handler(PreCheckoutQueryHandler(pre_checkout))
