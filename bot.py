@@ -65,100 +65,16 @@ FREE_KEYBOARD = InlineKeyboardMarkup([
 ])
 
 SYSTEM_PROMPT = """
-Ты — профессиональный таролог, специализирующийся на колоде Райдера—Уэйта. Твоя интерпретация опирается на глубокое знание символики, изложенное в книге Эвелин Бюргер и Йоханнеса Фибиг «Символика под микроскопом». Ты понимаешь, что каждая карта имеет и положительное, и отрицательное значение, является зеркалом души кверента и может быть рассмотрена как на субъективном (внутренние процессы), так и на объективном (внешние события) уровнях.
-
-Твоя задача
-Пользователь задаёт вопрос, связанный с его жизненной ситуацией.
-Ты сам случайным образом выбираешь три карты из полного списка колоды Таро (78 карт: 22 Старших аркана и 56 Младших арканов четырёх мастей — Жезлы, Чаши, Мечи, Пентакли). Используй равновероятный случайный выбор. После этого ты должен:
-
-Назвать три выпавшие карты — указать их название (и масть для Младших арканов).
-
-Кратко представить каждую карту — описать ключевые символы и основное значение, выделив как позитивные, так и негативные аспекты (если они уместны в контексте вопроса).
-
-Выполнить синтез — найти взаимосвязи между картами: общую тему, перекличку символов, возможные противоречия или усиления. Объяснить, как эти карты «разговаривают» друг с другом.
-
-Сделать общий развёрнутый вывод, который напрямую отвечает на вопрос пользователя. Вывод должен быть метафоричным, образным, но при этом практически полезным. Используй метафоры из описаний карт (розовый сад, башня, поток, зеркало и т.п.).
-
-По желанию добавить квинтэссенцию — сложи числовые значения карт (для Старших арканов — их номер; для Младших — число от 1 до 10; для придворных карт: Паж, Рыцарь, Королева, Король — 0), сведи к числу от 1 до 22 и назови соответствующий Старший аркан как итоговый совет или резюме расклада.
-
-Правила интерпретации
-Учитывай, что карты могут отражать как внешние обстоятельства, так и внутреннее состояние кверента. Если вопрос касается отношений, работы, самооценки — выбирай уместный уровень.
-
-Не бойся «сложных» карт (Смерть, Башня, Дьявол). Показывай их преобразующую, освобождающую сторону.
-
-Обращай внимание на детали: цвета, позы, предметы за спиной фигур — они дают ключ к скрытым смыслам.
-
-Если карт три, рассматривай их как диалог: одна может указывать на препятствие, другая — на ресурс, третья — на путь решения. Можешь интерпретировать их как «ситуация – препятствие – совет» или «прошлое – настоящее – будущее» — выбери схему, которая лучше всего подходит к вопросу, и сообщи её пользователю.
-
-Будь уважителен к пользователю. Твоя цель — не предсказание судьбы, а помощь в осознании ситуации и поиске собственного пути.
-
-Структура ответа
-Вступление (1–2 предложения): объяви, что ты вытянул три карты, и кратко обозначь общую атмосферу расклада.
-
-Перечисление выпавших карт (чётко назови их).
-
-Разбор каждой карты (по 3–5 предложений на карту): название, ключевые символы, значение применительно к вопросу, возможные грани.
-
-Синтез и взаимодействие (3–6 предложений): как карты сочетаются, что усиливают, что смягчают, какие параллели можно провести.
-
-Квинтэссенция (если уместно): суммарный аркан и его краткий смысл.
-
-Общий ответ на вопрос (3–8 предложений): развёрнутый, метафоричный, с советом или новым взглядом на ситуацию.
-
-Заключительная фраза (по желанию): напутствие или вопрос для размышления.
-
-Стиль ответа
-Используй живые образы: «вы стоите у корней дерева», «алый лев пробуждается в вашем сердце», «горизонтальная восьмёрка приглашает вас к бесконечному танцу».
-
-Избегай сухих перечислений. Пусть твой язык будет плавным, поэтичным, но при этом понятным.
-
-Обращайся к пользователю на «вы» (уважительно).
-
-Полный список карт колоды Райдера—Уэйта (для случайного выбора)
-Старшие арканы (22):
-0. Шут / Дурак
-I. Маг
-II. Верховная Жрица
-III. Императрица
-IV. Император
-V. Иерофант
-VI. Влюблённые
-VII. Колесница
-VIII. Сила
-IX. Отшельник
-X. Колесо Фортуны
-XI. Правосудие
-XII. Повешенный
-XIII. Смерть
-XIV. Умеренность
-XV. Дьявол
-XVI. Башня
-XVII. Звезда
-XVIII. Луна
-XIX. Солнце
-XX. Суд
-XXI. Мир
-
-Младшие арканы (56):
-Жезлы (огонь, воля): Туз, 2, 3, 4, 5, 6, 7, 8, 9, 10, Паж, Рыцарь, Королева, Король.
-Чаши (вода, чувства): Туз, 2, 3, 4, 5, 6, 7, 8, 9, 10, Паж, Рыцарь, Королева, Король.
-Мечи (воздух, разум): Туз, 2, 3, 4, 5, 6, 7, 8, 9, 10, Паж, Рыцарь, Королева, Король.
-Пентакли (земля, материя): Туз, 2, 3, 4, 5, 6, 7, 8, 9, 10, Паж, Рыцарь, Королева, Король.
-
-Пример начала работы бота
-После получения вопроса пользователя бот (ты) мысленно выбирает три случайные карты из списка, затем отвечает по шаблону:
-
-«Я вытянул для вас три карты. Их сочетание напоминает древнюю притчу: сначала герой встречает тьму, затем находит опору, а в конце обретает свет. Давайте посмотрим, что они говорят…
-Выпали: …»
-
-Дополнительная инструкция для ИИ
-При случайном выборе используй равномерное распределение: все 78 карт равновероятны.
-
-Если пользователь сам указал карты, просто интерпретируй их, не генерируя новые.
-
-Если пользователь задал вопрос без уточнения схемы, можешь интерпретировать три карты как «ситуация – вызов – путь» или «прошлое – настоящее – будущее», указав, какую схему ты применяешь.
-
-Будь внимателен: для придворных карт (Паж, Рыцарь, Королева, Король) числовое значение для квинтэссенции — 0. Для Тузов — 1. Для остальных числовых карт — число от 2 до 10. Для Старших арканов — их номер (для Шута — 0).
+Ты — профессиональный таролог, специализирующийся на колоде Райдера—Уэйта.
+Пользователь задаёт вопрос. Ты случайным образом выбираешь три карты из 78 (22 Старших и 56 Младших арканов).
+Твой ответ должен быть структурирован:
+- Название трёх выпавших карт.
+- Разбор каждой карты (ключевые символы, значение применительно к вопросу).
+- Синтез — как карты взаимодействуют.
+- Общий вывод, отвечающий на вопрос.
+- По желанию квинтэссенция (сумма числовых значений карт, приведённая к Старшему аркану).
+Будь поэтичен, используй метафоры, но понятен.
+Пользователь ждёт расклада. Сделай его максимально полезным.
 """
 
 # ========== ПРОВЕРКИ ==========
@@ -179,12 +95,9 @@ def is_payment_configured():
 LOCK_FILE = "/tmp/tarot_bot.lock"
 
 def acquire_lock():
-    """Захватывает эксклюзивную блокировку через flock. Если блокировка уже занята другим процессом, завершает выполнение."""
     try:
         lock_fd = open(LOCK_FILE, 'w')
-        # Пытаемся захватить блокировку без ожидания
         fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        # Записываем PID в файл для отладки
         lock_fd.write(str(os.getpid()))
         lock_fd.flush()
         logger.info(f"Блокировка захвачена, PID {os.getpid()} записан в {LOCK_FILE}")
@@ -194,7 +107,6 @@ def acquire_lock():
         sys.exit(1)
 
 def release_lock(lock_fd):
-    """Освобождает блокировку и закрывает файл."""
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         lock_fd.close()
@@ -269,22 +181,32 @@ class Database:
 
 # ========== AI ФУНКЦИИ ==========
 async def generate_welcome_message():
+    # Отдельный промпт для приветствия, не используем SYSTEM_PROMPT
+    welcome_prompt = "Ты — виртуальный таролог. Напиши краткое приветствие для пользователя, который готов задать вопрос. Объясни, что чем подробнее он опишет ситуацию, тем точнее будет расклад. Не используй Markdown."
     try:
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": "Напиши краткое приветствие для пользователя, который готов задать вопрос. Объясни, что чем подробнее он опишет ситуацию, тем точнее будет расклад. Не используй Markdown."}
-        ]
-        response = await asyncio.to_thread(
-            openai.ChatCompletion.create,
-            model="deepseek-chat",
-            messages=messages,
-            max_tokens=500,
-            temperature=0.7
+        response = await asyncio.wait_for(
+            asyncio.to_thread(
+                openai.ChatCompletion.create,
+                model="deepseek-chat",
+                messages=[{"role": "user", "content": welcome_prompt}],
+                max_tokens=500,
+                temperature=0.7
+            ),
+            timeout=30
         )
         return response.choices[0].message.content.strip()
+    except asyncio.TimeoutError:
+        logger.error("Таймаут генерации приветствия")
+        return get_default_welcome()
     except Exception as e:
         logger.error(f"Ошибка генерации приветствия: {e}")
-        return "Добро пожаловать. Я — таролог, работающий с мудростью колоды Райдера—Уэйта. Я готов выслушать ваш вопрос и обратиться к картам.\n\nЧтобы образы и символы заговорили с вами максимально ясно, пожалуйста, опишите вашу ситуацию или вопрос как можно подробнее. Чем больше деталей вы предоставите, тем глубже и точнее будет наше совместное путешествие к пониманию. Я жду вашего вопроса."
+        return get_default_welcome()
+
+def get_default_welcome():
+    return ("Добро пожаловать. Я — таролог, работающий с мудростью колоды Райдера—Уэйта. "
+            "Я готов выслушать ваш вопрос и обратиться к картам.\n\n"
+            "Чтобы образы и символы заговорили с вами максимально ясно, пожалуйста, опишите вашу ситуацию или вопрос как можно подробнее. "
+            "Чем больше деталей вы предоставите, тем глубже и точнее будет наше совместное путешествие к пониманию. Я жду вашего вопроса.")
 
 async def ask_ai(question, history):
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -292,14 +214,20 @@ async def ask_ai(question, history):
         messages.append(msg)
     messages.append({"role": "user", "content": question})
     try:
-        response = await asyncio.to_thread(
-            openai.ChatCompletion.create,
-            model="deepseek-chat",
-            messages=messages,
-            max_tokens=2000,
-            temperature=0.8
+        response = await asyncio.wait_for(
+            asyncio.to_thread(
+                openai.ChatCompletion.create,
+                model="deepseek-chat",
+                messages=messages,
+                max_tokens=2000,
+                temperature=0.8
+            ),
+            timeout=60
         )
         return response.choices[0].message.content
+    except asyncio.TimeoutError:
+        logger.error("Таймаут AI запроса")
+        return "Извините, запрос к серверу занял слишком много времени. Попробуйте позже."
     except Exception as e:
         logger.error(f"Ошибка DeepSeek: {e}")
         return "Извините, произошла ошибка. Попробуйте позже."
@@ -350,6 +278,35 @@ async def ask_feedback(chat_id, context):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+# ========== ЦЕНТРАЛИЗОВАННАЯ ПРОВЕРКА ВОЗМОЖНОСТИ СТАРТА ==========
+async def can_start_session(user_id, db, context, is_free=False):
+    """
+    Возвращает (can_start, message).
+    Проверяет:
+    - наличие активной сессии у пользователя
+    - кулдаун
+    - для бесплатной: если free_used, то запрет
+    """
+    # Активная сессия?
+    if context.user_data.get('state') == 'awaiting_question':
+        return False, "У вас уже есть активная сессия. Завершите её или задайте вопрос."
+
+    # Кулдаун
+    last_end = await db.get_last_session_end(user_id)
+    if last_end and (time.time() - last_end) < COOLDOWN_SECONDS:
+        remaining = COOLDOWN_SECONDS - (time.time() - last_end)
+        hours = int(remaining // 3600)
+        minutes = int((remaining % 3600) // 60)
+        return False, f"🌙 Картам нужно время, чтобы их образы улеглись в душе.\nСледующий расклад будет доступен через {hours} ч {minutes} мин.\nПриходите позже — мудрость не терпит спешки."
+
+    # Для бесплатной проверяем, не использовал ли уже
+    if is_free:
+        free_used = await db.is_free_used(user_id)
+        if free_used:
+            return False, "Вы уже использовали бесплатную сессию."
+
+    return True, None
+
 # ========== ОБРАБОТЧИКИ ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -364,35 +321,22 @@ async def start_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await db.get_or_create_user(user_id)
 
-    if context.user_data.get('waiting_for_question'):
+    # Проверка на возможность начать сессию (с учётом возможной бесплатной)
+    can, msg = await can_start_session(user_id, db, context, is_free=False)
+    if not can:
+        await update.message.reply_text(msg, reply_markup=START_KEYBOARD)
+        return
+
+    # Если бесплатные включены и пользователь не использовал бесплатную, предлагаем
+    if FREE_CONSULTATION_ENABLED and not await db.is_free_used(user_id):
         await update.message.reply_text(
-            "Вы уже задаёте вопрос. Напишите его, я готовлю расклад."
+            FREE_CONSULTATION_TEXT,
+            parse_mode='Markdown',
+            reply_markup=FREE_KEYBOARD
         )
         return
 
-    if FREE_CONSULTATION_ENABLED:
-        free_used = await db.is_free_used(user_id)
-        if not free_used:
-            await update.message.reply_text(
-                FREE_CONSULTATION_TEXT,
-                parse_mode='Markdown',
-                reply_markup=FREE_KEYBOARD
-            )
-            return
-
-    last_end = await db.get_last_session_end(user_id)
-    if last_end and (time.time() - last_end) < COOLDOWN_SECONDS:
-        remaining = COOLDOWN_SECONDS - (time.time() - last_end)
-        hours = int(remaining // 3600)
-        minutes = int((remaining % 3600) // 60)
-        await update.message.reply_text(
-            f"🌙 Картам нужно время, чтобы их образы улеглись в душе.\n"
-            f"Следующий расклад будет доступен через {hours} ч {minutes} мин.\n"
-            f"Приходите позже — мудрость не терпит спешки.",
-            reply_markup=START_KEYBOARD
-        )
-        return
-
+    # Если платёж включен и пользователь не бесплатный, то платная сессия
     if is_payment_configured():
         service_text = (
             "✨ Я — виртуальный таролог.✨\n\n"
@@ -415,7 +359,8 @@ async def start_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_invoice(chat_id, context)
         return
 
-    await start_session_core(chat_id, user_id, context)
+    # Иначе просто начинаем сессию (если нет ни бесплатной, ни платной)
+    await start_session_core(chat_id, user_id, context, is_free=False)
 
 async def free_consultation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -424,33 +369,33 @@ async def free_consultation_callback(update: Update, context: ContextTypes.DEFAU
     chat_id = query.message.chat_id
     db: Database = context.bot_data['db']
 
-    free_used = await db.is_free_used(user_id)
-    if free_used:
-        await query.edit_message_text("Вы уже использовали бесплатную сессию.")
+    # Проверка на возможность бесплатной сессии
+    can, msg = await can_start_session(user_id, db, context, is_free=True)
+    if not can:
+        await query.edit_message_text(msg)
         return
 
-    if context.user_data.get('waiting_for_question'):
-        await query.edit_message_text("У вас уже есть активная сессия. Завершите её.")
-        return
-
+    # Отмечаем, что бесплатная использована
     await db.set_free_used(user_id)
     await query.edit_message_text("Начинаем бесплатную сессию...")
-    await start_session_core(chat_id, user_id, context)
+    await start_session_core(chat_id, user_id, context, is_free=True)
 
-async def start_session_core(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE):
+async def start_session_core(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE, is_free: bool):
     if USE_AI_WELCOME:
         welcome = await generate_welcome_message()
     else:
-        welcome = "Добро пожаловать. Я — таролог, работающий с мудростью колоды Райдера—Уэйта. Я готов выслушать ваш вопрос и обратиться к картам.\n\nЧтобы образы и символы заговорили с вами максимально ясно, пожалуйста, опишите вашу ситуацию или вопрос как можно подробнее. Чем больше деталей вы предоставите, тем глубже и точнее будет наше совместное путешествие к пониманию. Я жду вашего вопроса."
+        welcome = get_default_welcome()
 
     await context.bot.send_message(
         chat_id, welcome,
         reply_markup=ReplyKeyboardMarkup([["Завершить сессию"]], resize_keyboard=True)
     )
-    context.user_data['waiting_for_question'] = True
+    context.user_data['state'] = 'awaiting_question'
     context.user_data['user_id'] = user_id
     context.user_data['chat_id'] = chat_id
     context.user_data['history'] = []
+    # Сохраняем флаг is_free на случай, если понадобится
+    context.user_data['is_free_session'] = is_free
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
@@ -458,9 +403,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     db: Database = context.bot_data['db']
 
+    # Сначала проверяем, не ждём ли мы отзыв
+    if context.user_data.get('state') == 'awaiting_feedback':
+        # Обработка отзыва
+        feedback = user_message
+        if AUTHOR_CHAT_ID:
+            try:
+                await context.bot.send_message(
+                    int(AUTHOR_CHAT_ID),
+                    f"📬 Новый отзыв\n\n{feedback}"
+                )
+            except Exception as e:
+                logger.error(f"Не удалось отправить отзыв: {e}")
+        await update.message.reply_text("Спасибо за ваш отзыв!")
+        context.user_data['state'] = 'idle'
+        return
+
+    # Обработка кнопки "Завершить сессию"
     if user_message == "Завершить сессию":
-        if context.user_data.get('waiting_for_question'):
+        if context.user_data.get('state') == 'awaiting_question':
             context.user_data.clear()
+            context.user_data['state'] = 'idle'
             await update.message.reply_text(
                 "✨",
                 reply_markup=START_KEYBOARD
@@ -472,7 +435,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    if context.user_data.get('waiting_for_question'):
+    # Основная логика: если сессия активна и это вопрос
+    if context.user_data.get('state') == 'awaiting_question':
+        # Проверка, что сообщение от того же пользователя, кто начал сессию
         if context.user_data.get('user_id') != user_id:
             await update.message.reply_text(
                 "Сейчас идёт сессия другого пользователя. Подождите.",
@@ -497,21 +462,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(answer)
 
-        await db.update_last_session_end(user_id)
-        context.user_data.pop('waiting_for_question', None)
-        context.user_data.pop('user_id', None)
-        context.user_data.pop('chat_id', None)
-        context.user_data.pop('history', None)
+        # Обновляем БД, но даже если ошибка, всё равно очищаем состояние
+        try:
+            await db.update_last_session_end(user_id)
+        except Exception as e:
+            logger.error(f"Ошибка обновления last_session_end: {e}")
+        finally:
+            # Очистка состояния сессии
+            context.user_data.clear()
+            context.user_data['state'] = 'idle'
 
-        # Сначала галочка с клавиатурой
+        # Возврат к стартовой клавиатуре
         await update.message.reply_text(
             "✨",
             reply_markup=START_KEYBOARD
         )
-        # Потом предложение отзыва
+        # Предложение отзыва
         await ask_feedback(chat_id, context)
         return
 
+    # Если нет активной сессии и не ожидаем отзыва
     await update.message.reply_text(
         "Сейчас нет активной сессии. Нажмите «Начать сессию».",
         reply_markup=START_KEYBOARD
@@ -521,24 +491,10 @@ async def feedback_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     if query.data == "feedback_yes":
-        context.user_data['awaiting_feedback'] = True
+        context.user_data['state'] = 'awaiting_feedback'
         await query.edit_message_text("Пожалуйста, напишите ваш отзыв одним сообщением.⤵️")
     else:
         await query.edit_message_text("Спасибо! Если захотите оставить отзыв позже, используйте /feedback.")
-
-async def feedback_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('awaiting_feedback'):
-        feedback = update.message.text
-        if AUTHOR_CHAT_ID:
-            try:
-                await context.bot.send_message(
-                    int(AUTHOR_CHAT_ID),
-                    f"📬 Новый отзыв\n\n{feedback}"
-                )
-            except Exception as e:
-                logger.error(f"Не удалось отправить отзыв: {e}")
-        await update.message.reply_text("Спасибо за ваш отзыв!")
-        context.user_data.pop('awaiting_feedback', None)
 
 # ========== ПЛАТЁЖНЫЕ ОБРАБОТЧИКИ ==========
 async def pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -550,11 +506,19 @@ async def pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
+    db: Database = context.bot_data['db']
+
+    # Проверка на возможность начать сессию (платную)
+    can, msg = await can_start_session(user_id, db, context, is_free=False)
+    if not can:
+        await update.message.reply_text(msg)
+        return
+
     await update.message.reply_text(
         "✅ Оплата прошла успешно! Начинаем сеанс.",
         reply_markup=ReplyKeyboardMarkup([["Завершить сессию"]], resize_keyboard=True)
     )
-    await start_session_core(chat_id, user_id, context)
+    await start_session_core(chat_id, user_id, context, is_free=False)
 
 # ========== КОМАНДА СБРОСА БД ==========
 async def resetdb(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -562,13 +526,32 @@ async def resetdb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ Недостаточно прав для выполнения этой команды.")
         return
 
+    # Запрос подтверждения
+    context.user_data['confirm_reset'] = True
+    await update.message.reply_text(
+        "⚠️ ВНИМАНИЕ! Сброс базы данных удалит всех пользователей и историю.\n"
+        "Для подтверждения отправьте команду /resetdb_confirm\n"
+        "Для отмены ничего не делайте."
+    )
+
+async def resetdb_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if AUTHOR_CHAT_ID and update.effective_user.id != int(AUTHOR_CHAT_ID):
+        await update.message.reply_text("⛔ Недостаточно прав.")
+        return
+
+    if not context.user_data.get('confirm_reset'):
+        await update.message.reply_text("Нет запроса на сброс. Используйте /resetdb для начала.")
+        return
+
     db: Database = context.bot_data['db']
-    await update.message.reply_text("⚠️ Сброс базы данных... Это удалит всех пользователей и историю.")
+    await update.message.reply_text("⚠️ Сброс базы данных...")
     try:
         await db.reset_database()
         await update.message.reply_text("✅ База данных успешно сброшена.")
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка при сбросе базы: {e}")
+    finally:
+        context.user_data.pop('confirm_reset', None)
 
 # ========== ЗАПУСК ==========
 async def main():
@@ -591,17 +574,17 @@ async def main():
             await app.bot.delete_webhook()
             await asyncio.sleep(1)
 
-        # Регистрация обработчиков
+        # Регистрация обработчиков в правильном порядке
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("resetdb", resetdb))
+        app.add_handler(CommandHandler("resetdb_confirm", resetdb_confirm))
         app.add_handler(MessageHandler(filters.Regex("^Начать сессию$"), start_session))
         app.add_handler(CallbackQueryHandler(free_consultation_callback, pattern="^free_consultation$"))
         app.add_handler(PreCheckoutQueryHandler(pre_checkout))
         app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         app.add_handler(CallbackQueryHandler(feedback_callback, pattern="^feedback_"))
-        app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^Завершить сессию$"), handle_message))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, feedback_text))
+        # Единый обработчик текстовых сообщений (все, кроме команд)
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
         await app.initialize()
         await app.start()
